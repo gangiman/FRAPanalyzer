@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import javabridge
 import bioformats
 from collections import OrderedDict
@@ -6,10 +7,12 @@ class LIFContainer:
     def __init__(self, filename):
         self.filename = filename
         self.metadata_in_xml = bioformats.get_omexml_metadata(filename)
+        self.metadata_in_xml = self.metadata_in_xml.replace(u'\xb5',' ')
 
     def get_image_data(self):
         data = OrderedDict()
         ome_metadata = bioformats.omexml.OMEXML(self.metadata_in_xml)
+
         for i in range(ome_metadata.image_count):
             image = ome_metadata.image(i)
             data[image.Name] = {
