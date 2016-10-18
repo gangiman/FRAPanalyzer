@@ -1,4 +1,10 @@
+PyQt4
+qtpy
+numpy
+scipy
+matplotlib
+scikit-image
+javabridge
 python-bioformats
-Cython
 openpiv
 progressbar
