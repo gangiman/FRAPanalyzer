@@ -17,7 +17,7 @@ from xml.etree import cElementTree as etree
 from .lifproc import LIFContainer
 from .lifproc import start_bioformats
 from .lifproc import stop_bioformats
-# from .piv import plot_piv_flow
+from .piv import plot_piv_flow
 
 import re
 from pprint import pprint
@@ -35,6 +35,7 @@ about_message = """
 FRAP visualisation and analysis with experimental features.
 """
 
+MAX_TABS_WIDTH = 600  # pixels
 
 class MyMplCanvas(FigureCanvas):
     """Ultimately, this is a QWidget (as well as a FigureCanvasAgg, etc.)."""
@@ -56,26 +57,56 @@ class MyMplCanvas(FigureCanvas):
 def parseXML(parent, node):
     for element in node:
         item = QtGui.QStandardItem()
-        item.setCheckable(True)
+        label_item = QtGui.QStandardItem()
+        # item.setCheckable(True)
         tag = element.tag
         regexp = re.compile(r"\{([^\}]+)\}")
         tag = regexp.sub('', tag)
         item.setData(tag, QtCore.Qt.DisplayRole)
+        label_item.setText('')
         parseXML(item, element)
-        parent.appendRow(item)
+        parent.appendRow((item, label_item))
+
+
+def parseStrucAnnot(parent, sub_dict):
+    empty_item = QtGui.QStandardItem()
+    empty_item.setText('')
+    for metadata, value in sub_dict.items():
+        item = QtGui.QStandardItem()
+        item.setData(metadata, QtCore.Qt.DisplayRole)
+        if isinstance(value, str):
+            text_item = QtGui.QStandardItem()
+            text_item.setText(value)
+            parent.appendRow((item, text_item))
+        else:
+            parseStrucAnnot(item, value)
+            parent.appendRow(item)
+            # parent.appendRow((item, empty_item))
 
 
 class XmlTreeView(QtWidgets.QTreeView):
 
     def __init__(self, *args, **kwargs):
         super(XmlTreeView, self).__init__(*args, **kwargs)
+        self.model = QtGui.QStandardItemModel()
+        self.setModel(self.model)
+        self.model.setColumnCount(2)
+        self.model.setHeaderData(0, QtCore.Qt.Horizontal, "Metadata")
+        self.model.setHeaderData(1, QtCore.Qt.Horizontal, "Value")
+        self.strucan = None
 
     def load_xml(self, xml_string):
         xml = etree.fromstring(xml_string)
         root = xml
-        self.mdl = QtGui.QStandardItemModel()
-        self.setModel(self.mdl)
-        parseXML(self.mdl, root)
+        parseXML(self.model, root)
+
+    def load_structured_annotation(self, strucan):
+        self.strucan = strucan
+
+    def show_str_ann(self, series):
+        self.model.removeRows(0, self.model.rowCount())
+        if self.strucan is not None:
+            parseStrucAnnot(self.model, self.strucan[series])
 
 
 class ApplicationWindow(QtWidgets.QMainWindow):
@@ -90,22 +121,28 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.lif = None
         self.lif_img_data = None
         self.lif_series_order = None
+        self.max_frame_count = None
+        self.current_series_id = None
 
         self.main_widget = QtWidgets.QWidget(self)
 
         top_layout = QtWidgets.QHBoxLayout(self.main_widget)
 
+        splitter = QtWidgets.QSplitter()
+        splitter.setOrientation(QtCore.Qt.Horizontal)
         # Left half elements
         self.tabs = QtWidgets.QTabWidget()
+        self.tabs.setMaximumWidth(MAX_TABS_WIDTH)
         self.xw1 = XmlTreeView(self.main_widget)
         self.xw2 = XmlTreeView(self.main_widget)
-        self.tabs.addTab(self.xw1, "Full view")
+        self.tabs.addTab(self.xw1, "Structured Annotations")
         self.tabs.addTab(self.xw2, "Limited view")
-        top_layout.addWidget(self.tabs)
+        splitter.addWidget(self.tabs)
 
         # Right half elements
         self.right_half = QtWidgets.QWidget(self.main_widget)
-        top_layout.addWidget(self.right_half)
+        splitter.addWidget(self.right_half)
+        top_layout.addWidget(splitter)
 
         #   Right half vertical layout
         right_half_vertical_layout = QtWidgets.QVBoxLayout(self.right_half)
@@ -115,6 +152,11 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.right_top_widget = QtWidgets.QWidget(self.right_half)
         right_top_horizontal_layout = QtWidgets.QHBoxLayout(self.right_top_widget)
         self.right_top_widget.setLayout(right_top_horizontal_layout)
+
+        # play button
+        self.play_button = QtWidgets.QPushButton('Play', self)
+        self.play_button.clicked.connect(self.handlePlayButton)
+        right_top_horizontal_layout.addWidget(self.play_button)
 
         #       Drop-Down list
         self.combo = QtWidgets.QComboBox(self.right_half)
@@ -140,7 +182,40 @@ class ApplicationWindow(QtWidgets.QMainWindow):
 
         self.main_widget.setFocus()
         self.setCentralWidget(self.main_widget)
-        # self.statusBar().showMessage("All hail matplotlib!", 2000)
+
+        # timer for callbacks, taken from:
+        # http://ralsina.me/weblog/posts/BB974.html
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.update_frames)
+
+    def handlePlayButton(self):
+        if self.play_button.text() == 'Play':
+            value = self.time_slider.value()
+            series_str = str(self.combo.currentText())
+            if not series_str:
+                QtWidgets.QMessageBox.about(self, "Error message",
+                                            "Choose one of the series!")
+            series_duration = self.lif_img_data[series_str]['T'] - 1
+            if not series_duration:
+                QtWidgets.QMessageBox.about(self, "Error message",
+                                            "Only one image in a series!")
+            if value == series_duration:
+                self.time_slider.setValue(0)
+            self.timer.start(1000 / series_duration)
+            self.play_button.setText("Stop")
+        elif self.play_button.text() == 'Stop':
+            self.timer.stop()
+            self.play_button.setText("Play")
+
+    def update_frames(self):
+        value = self.time_slider.value()
+        if value == self.max_frame_count:
+            self.timer.stop()
+            self.play_button.setText("Play")
+            return
+        img = self.lif.get_image(t=value + 1, series_id=self.current_series_id)
+        self.redraw_canvas(img)
+        self.time_slider.setValue(value + 1)
 
     def init_window(self):
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
@@ -173,11 +248,11 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self.combo.addItems(self.lif_series_order)
         start_img = self.lif.get_image(series_id=0)
         self.redraw_canvas(start_img)
-        self.xw1.load_xml(self.lif.metadata_in_xml)
+        self.xw1.load_structured_annotation(
+            self.lif.get_structured_annotations())
+        self.xw1.show_str_ann(self.lif_series_order[0])
 
     def showFlow(self, state):
-        return
-        """
         if state == QtCore.Qt.Checked:
             value = self.time_slider.value()
             series_str = str(self.combo.currentText())
@@ -186,13 +261,12 @@ class ApplicationWindow(QtWidgets.QMainWindow):
                 value -= 1
             plot_piv_flow(
                 self.lif.get_image(t=value, series_id=self.current_series_id),
-                self.lif.get_image(t=value + 1, series_id=self.current_series_id),
+                self.lif.get_image(t=value + 3, series_id=self.current_series_id),
                 axes=self.image_canvas.axes
             )
             self.image_canvas.draw()
         else:
             print("Not Show flow")
-        """
 
     def slider_move(self):
         value = self.time_slider.value()
@@ -210,13 +284,15 @@ class ApplicationWindow(QtWidgets.QMainWindow):
     def combo_callback(self, series_str):
         if not series_str:
             return
-        self.time_slider.setRange(0, self.lif_img_data[series_str]['T'] - 1)
+        self.max_frame_count = self.lif_img_data[series_str]['T'] - 1
+        self.time_slider.setRange(0, self.max_frame_count)
         self.time_slider.setValue(0)
-        self.time_slider.setTickInterval(round((self.lif_img_data[series_str]['T']-1)/10.0))
+        self.time_slider.setTickInterval(self.max_frame_count / 10)
 
         self.current_series_id = self.lif_series_order.index(series_str)
         img = self.lif.get_image(series_id=self.current_series_id)
         self.redraw_canvas(img)
+        self.xw1.show_str_ann(series_str)
 
     def close(self):
         stop_bioformats()

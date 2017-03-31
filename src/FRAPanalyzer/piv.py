@@ -3,16 +3,21 @@ import openpiv
 
 
 def get_piv_flow(frame_a, frame_b):
+    window_size = 32  # pixels
+    overlap = 16  # pixels, i.e. 50%
+    dt = 1. / 15  # 15 Hz laser and CCD recording
+    # dt = 0.02
+    # process PIV
     u, v, sig2noise = openpiv.process.extended_search_area_piv(
         frame_a.astype(np.int32), frame_b.astype(np.int32),
-        window_size=24, overlap=12, dt=0.02, search_area_size=64,
+        window_size=window_size, overlap=overlap, dt=dt, search_area_size=2 * window_size,
         sig2noise_method='peak2peak')
 
-    x, y = openpiv.process.get_coordinates(image_size=frame_a.shape, window_size=24, overlap=12)
+    x, y = openpiv.process.get_coordinates(image_size=frame_a.shape, window_size=window_size, overlap=overlap)
     u, v, mask = openpiv.validation.sig2noise_val(u, v, sig2noise, threshold=1.3)
-    u, v, mask = openpiv.validation.global_val(u, v, (-1000, 2000), (-1000, 1000))
+    # u, v, mask = openpiv.validation.global_val(u, v, (-1000, 2000), (-1000, 1000))
     u, v = openpiv.filters.replace_outliers(u, v, method='localmean', max_iter=10, kernel_size=2)
-    x, y, u, v = openpiv.scaling.uniform(x, y, u, v, scaling_factor=96.52)
+    x, y, u, v = openpiv.scaling.uniform(x, y, u, v, scaling_factor=1)  # scaling_factor=96.52
     return x, y, u, v, mask
 
     # openpiv.tools.save(x, y, u, v, mask, 'exp1_001.txt')
@@ -23,7 +28,7 @@ def plot_piv_flow(a, b, axes=None):
     x, y, u, v, mask = get_piv_flow(a, b)
     # a = np.loadtxt(filename)
     # fig=axes.figure()
-    axes.hold(True)
+    # axes.hold(True)
     # if on_img: # plot a background image
     #     im = imread(image_name)
     #     im = negative(im) #plot negative of the image for more clarity
@@ -35,8 +40,8 @@ def plot_piv_flow(a, b, axes=None):
     # invalid = a[:,4].astype('bool')
     # fig.canvas.set_window_title('Vector field, '+str(np.count_nonzero(invalid))+' wrong vectors')
     valid = ~mask
-    axes.quiver(x[mask], y[mask], u[mask], v[mask], color='r')
-    axes.quiver(x[valid], y[valid], u[valid], v[valid], color='b')
-    axes.hold(False)
+    # axes.quiver(x[mask], y[mask], u[mask], v[mask], color='r')
+    # axes.quiver(x[valid], y[valid], u[valid], v[valid], color='b')
+    # axes.hold(False)
     # axes.draw()
     # axes.show()
