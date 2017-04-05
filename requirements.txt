@@ -6,3 +6,4 @@ scikit-image
 javabridge
 python-bioformats
 openpiv
+tqdm
