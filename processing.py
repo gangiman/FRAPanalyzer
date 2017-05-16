@@ -51,6 +51,12 @@ class Processing:
         
         return _frames
     
+    def process_single_filter(self, imgs, func, **kwargs):
+        _frames = np.zeros_like(imgs)
+        for i in tqdm_notebook(range(imgs.shape[-1]), total=imgs.shape[-1]):
+            _frames[:, :, i] = func(imgs[:, :, i])
+        return _frames
+    
     def process_custom_conv_filter(imgs, h_weights, v_weights, just_func=False, **kwargs):
         def _mask_filter_result(result, mask):
             if mask is None:
