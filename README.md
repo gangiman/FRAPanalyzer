@@ -42,3 +42,4 @@ http://sci-hub.cc/10.1109/TPAMI.2005.173
 * http://sci-hub.cc/10.1109/ICHIT.2008.224
 
 
+[![Filters on boundaries of ROI](https://preview.ibb.co/cweoAk/2017_05_16_12_55_58.png)](https://youtu.be/phfgszzy4mQ)
