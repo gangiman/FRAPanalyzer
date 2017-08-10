@@ -7,3 +7,4 @@ javabridge
 python-bioformats
 openpiv
 tqdm
+plotly
